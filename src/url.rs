@@ -13,9 +13,12 @@ pub const DEFAULT_BASE_URL: &str = "https://api.acoustid.org/v2/lookup";
 
 /// The `meta` value the lookup asks for.
 ///
-/// Recording metadata fills the identified recording's title and artists, and
-/// recording ids are what the server compares a MusicBrainz id against.
-pub const LOOKUP_META: &str = "recordings recordingids";
+/// `recordings` fills the identified recording's title and artists, which the
+/// title-and-artist rule compares against the expected track. `recordingids`
+/// is deliberately not requested: the service answers it with bare recording
+/// ids and strips the titles and artists, which leaves only the id rule able
+/// to match.
+pub const LOOKUP_META: &str = "recordings";
 
 /// Returns whether `value` is an absolute `http` or `https` URL.
 ///
@@ -95,7 +98,7 @@ pub fn normalize_base_url(value: &str) -> String {
 ///
 /// ```text
 /// lookup_form("key", 120, "AQAAAA")
-///   -> "client=key&duration=120&fingerprint=AQAAAA&meta=recordings%20recordingids&format=json"
+///   -> "client=key&duration=120&fingerprint=AQAAAA&meta=recordings&format=json"
 /// ```
 pub fn lookup_form(client_key: &str, duration_secs: u32, fingerprint: &str) -> String {
     format!(
@@ -190,10 +193,15 @@ mod tests {
 
     #[test]
     fn builds_a_lookup_body() {
+        let body = lookup_form("key", 120, "AQAAAA");
+
         assert_eq!(
-            lookup_form("key", 120, "AQAAAA"),
-            "client=key&duration=120&fingerprint=AQAAAA&meta=recordings%20recordingids&format=json"
+            body,
+            "client=key&duration=120&fingerprint=AQAAAA&meta=recordings&format=json"
         );
+        // The service strips titles and artists from a lookup that asks for
+        // recording ids, so the body must not carry that flag.
+        assert!(!body.contains("recordingids"), "{body}");
     }
 
     #[test]

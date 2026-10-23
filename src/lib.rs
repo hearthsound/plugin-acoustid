@@ -20,7 +20,10 @@
 //! expected first artist is among its artists. The second rule matters because
 //! one song usually has several MusicBrainz recordings (album, single,
 //! remaster), and a correct file often identifies a different one than the
-//! server resolved.
+//! server resolved. The lookup asks for `meta=recordings` so those titles and
+//! artists arrive; a recording without them can only match by id, and a lookup
+//! where nothing matched but some recording lacked them answers `unknown`
+//! rather than rejecting a file the service could not fully describe.
 //!
 //! The pure logic sits in public modules ([`acoustid`], [`normalize`], [`url`],
 //! [`verdict`]); the binding-coupled glue - the HTTP transport and the plugin

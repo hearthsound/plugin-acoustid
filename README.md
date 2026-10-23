@@ -82,8 +82,11 @@ burst of 3, which is the ceiling the service documents.
 
 ## How a verdict is decided
 
-The lookup asks for recording metadata (`meta=recordings recordingids`), so each
-result carries the MusicBrainz recordings AcoustID associates with the print.
+The lookup asks for recording metadata (`meta=recordings`), so each result
+carries the MusicBrainz recordings AcoustID associates with the print, with
+their titles and artists. Asking for `recordingids` as well is deliberately
+avoided: the service answers that flag with bare ids and strips the titles and
+artists, which would leave only the id rule able to match.
 
 1. Results below `minScore` are ignored, and so are results that carry no
    recording.
@@ -96,10 +99,14 @@ result carries the MusicBrainz recordings AcoustID associates with the print.
    different recording than the one the server resolved.
 4. The highest-scoring matching result decides `match`, with its confidence as
    the score and its recording ids as the identified ids.
-5. Otherwise, the highest-scoring remaining result decides `mismatch`, with its
+5. A recording without a title or artists can only match by id. If no
+   recording matched and at least one remaining recording lacks that metadata,
+   the verdict is `unknown`, because the missing fields make a text rejection
+   a guess rather than evidence.
+6. Otherwise, the highest-scoring remaining result decides `mismatch`, with its
    confidence, its recording ids, and a detail naming what the fingerprint
    identified.
-6. With no remaining result the verdict is `unknown` with a score of 0.
+7. With no remaining result the verdict is `unknown` with a score of 0.
 
 Titles and artist names are compared after NFKD decomposition with combining
 marks dropped, lowercasing, and every non-alphanumeric character replaced by a

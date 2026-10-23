@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The lookup asks for `meta=recordings` only. Asking for `recordingids` as
+  well makes the service return bare recording ids without titles or artists,
+  which left the title and artist rule unable to match.
+- A recording without a title or artists can only match by id. When no
+  recording matched and at least one remaining recording lacks that metadata,
+  the verdict is `unknown` instead of `mismatch`.
+
 ## [0.1.1] - 2026-10-23
 
 ### Fixed

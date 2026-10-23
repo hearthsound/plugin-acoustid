@@ -9,6 +9,12 @@
 //! recordings of one song (album, single, remaster), and a correct file often
 //! fingerprints to a different recording than the one the server resolved.
 //!
+//! A recording without a title or artists can only match by id, because a text
+//! comparison against absent metadata says nothing. When no recording matched
+//! and at least one remaining recording lacks that metadata, the verdict is
+//! unknown rather than a mismatch: the service could have identified the file
+//! but withheld the fields the comparison needs.
+//!
 //! Everything here is pure: it never touches the network and never depends on
 //! the plugin bindings beyond their plain data types, so it is unit-tested on
 //! the host target.
@@ -65,9 +71,10 @@ pub fn expected_recording_id(expected: &ExpectedTrack) -> Option<&str> {
 /// A match when a remaining result carries the expected recording by id or by
 /// normalized title and artist, a mismatch when a remaining result carries
 /// recordings but none of them matches either way, and unknown when no
-/// remaining result carries a recording. The score is the deciding result's
-/// confidence, and the identified ids are the recordings of the deciding
-/// result.
+/// remaining result carries a recording or when any remaining recording lacks
+/// the title or artists a text comparison needs. The score is the deciding
+/// result's confidence, and the identified ids are the recordings of the
+/// deciding result.
 ///
 /// # Example
 ///
@@ -99,6 +106,15 @@ pub fn decide(
         .find(|result| result_matches(result, expected, expected_id))
     {
         return match_result(hit);
+    }
+
+    // A recording without a title or artists cannot be compared by text, so a
+    // rejection built on it would be a guess. Stay unsure instead.
+    if ranked
+        .iter()
+        .any(|result| result.recordings.iter().any(recording_lacks_metadata))
+    {
+        return incomplete_result();
     }
 
     if let Some(best) = ranked.first() {
@@ -169,6 +185,29 @@ fn recording_matches_text(recording: &Recording, expected: &ExpectedTrack) -> bo
     }
 }
 
+/// Returns whether a recording lacks the metadata a text comparison needs.
+///
+/// # Parameters
+///
+/// - `recording`: the recording to inspect.
+///
+/// # Returns
+///
+/// `true` when the title is absent or blank, or when the recording credits no
+/// artist with a non-blank name. Such a recording can still match by id, but a
+/// text comparison against it proves nothing either way.
+fn recording_lacks_metadata(recording: &Recording) -> bool {
+    let title_missing = recording
+        .title
+        .as_deref()
+        .is_none_or(|title| title.trim().is_empty());
+    title_missing
+        || recording
+            .artists
+            .iter()
+            .all(|artist| artist.name.trim().is_empty())
+}
+
 /// Builds the result of a matching lookup result.
 fn match_result(result: &LookupResult) -> VerificationResult {
     VerificationResult {
@@ -196,6 +235,17 @@ fn unknown_result() -> VerificationResult {
         verdict: Verdict::Unknown,
         score: 0.0,
         detail: Some("AcoustID knows no recording for this fingerprint".to_string()),
+        identified: Vec::new(),
+    }
+}
+
+/// Builds the result of a lookup whose recordings lack the metadata a text
+/// comparison needs.
+fn incomplete_result() -> VerificationResult {
+    VerificationResult {
+        verdict: Verdict::Unknown,
+        score: 0.0,
+        detail: Some("AcoustID returned recordings without title or artist metadata".to_string()),
         identified: Vec::new(),
     }
 }
@@ -256,6 +306,9 @@ mod tests {
 
     /// Recording id the alternate-recording fixture reports.
     const ALTERNATE_ID: &str = "55555555-5555-4555-8555-555555555555";
+
+    /// Recording id the id-only fixture reports.
+    const ID_ONLY_ID: &str = "77777777-7777-4777-8777-777777777777";
 
     fn expected(ids: &[(&str, &str)]) -> ExpectedTrack {
         ExpectedTrack {
@@ -323,6 +376,48 @@ mod tests {
         assert_eq!(result.score, 0.88);
         assert_eq!(result.identified.len(), 1);
         assert_eq!(result.identified[0].value, ALTERNATE_ID);
+    }
+
+    #[test]
+    fn matches_a_recording_by_id_without_metadata() {
+        // A lookup that only returns recording ids still decides by id.
+        let result = decide(
+            &expected(&[("mb-recording", ID_ONLY_ID)]),
+            &response(include_str!("fixtures/ids_only.json")),
+            0.5,
+        );
+
+        assert_eq!(result.verdict, Verdict::Match);
+        assert_eq!(result.identified.len(), 1);
+        assert_eq!(result.identified[0].value, ID_ONLY_ID);
+    }
+
+    #[test]
+    fn stays_unknown_when_ids_differ_and_metadata_is_missing() {
+        // The id differs and the recording carries no title or artists, so a
+        // text comparison cannot reject the file.
+        let result = decide(
+            &expected(&[("mb-recording", MATCHED_ID)]),
+            &response(include_str!("fixtures/ids_only.json")),
+            0.5,
+        );
+
+        assert_eq!(result.verdict, Verdict::Unknown);
+        assert_eq!(result.score, 0.0);
+        assert!(result.identified.is_empty());
+        let detail = result.detail.unwrap_or_default();
+        assert!(detail.contains("metadata"), "{detail}");
+    }
+
+    #[test]
+    fn one_incomplete_recording_makes_the_verdict_unknown() {
+        let result = decide(
+            &expected(&[("mb-recording", MATCHED_ID)]),
+            &response(include_str!("fixtures/mixed_metadata.json")),
+            0.5,
+        );
+
+        assert_eq!(result.verdict, Verdict::Unknown);
     }
 
     #[test]
