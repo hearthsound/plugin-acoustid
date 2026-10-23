@@ -1,0 +1,60 @@
+{
+  "manifestVersion": 1,
+  "id": "app.hearthsound.acoustid",
+  "name": "AcoustID verification",
+  "version": "0.1.0",
+  "description": "Check downloaded files against the AcoustID fingerprint database so the server keeps only the recording it asked for.",
+  "authors": ["Hearthsound contributors"],
+  "license": "MIT OR Apache-2.0",
+  "homepage": "https://github.com/hearthsound/plugin-acoustid",
+  "api": "hearthsound:plugin@0.3.0",
+  "provides": ["verification"],
+  "permissions": {
+    "http": {
+      "hosts": ["api.acoustid.org", "$config:baseUrl"],
+      "rateLimit": { "perSecond": 3, "burst": 3 }
+    }
+  },
+  "config": {
+    "server": {
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["clientKey"],
+        "properties": {
+          "clientKey": {
+            "type": "string",
+            "title": "AcoustID client key",
+            "description": "Application API key registered at https://acoustid.org/new-application. Register a key for this server rather than reusing a public example key.",
+            "writeOnly": true
+          },
+          "baseUrl": {
+            "type": "string",
+            "format": "uri",
+            "title": "Lookup URL",
+            "description": "Full URL of the AcoustID lookup endpoint. Point it at a test double to keep traffic off AcoustID.",
+            "default": "https://api.acoustid.org/v2/lookup"
+          },
+          "minScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "title": "Minimum match score",
+            "description": "Lookup results below this confidence are ignored, so a weak match cannot decide a verdict.",
+            "default": 0.5
+          }
+        }
+      },
+      "uiSchema": {
+        "type": "VerticalLayout",
+        "elements": [
+          { "type": "Control", "scope": "#/properties/clientKey" },
+          { "type": "Control", "scope": "#/properties/baseUrl" },
+          { "type": "Control", "scope": "#/properties/minScore" }
+        ]
+      }
+    },
+    "user": null
+  },
+  "resources": { "memoryMb": 64, "callTimeoutMs": 15000, "maxInstances": 2 }
+}
