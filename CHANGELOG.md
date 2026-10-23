@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A file whose fingerprint identifies a different MusicBrainz recording of the
+  same title and artist is now accepted. One song usually has several
+  recordings (album, single, remaster), so the title and artist rule runs
+  alongside the recording-id comparison instead of only when the server
+  expected no id.
+- The title and artist rule now accepts the expected first artist anywhere in a
+  recording's credits, not only as its first credit.
+
 ## [0.1.0] - 2026-10-23
 
 ### Added

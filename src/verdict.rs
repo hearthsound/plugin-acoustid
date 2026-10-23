@@ -3,9 +3,11 @@
 //! The rules are the ones the verification interface documents: results below
 //! the configured confidence are ignored, and a result decides a verdict only
 //! when it carries at least one MusicBrainz recording. A recording matches when
-//! its MusicBrainz id is the one the server expected, or, when the server
-//! expected none, when its normalized title and first artist equal the expected
-//! ones.
+//! its MusicBrainz id is the one the server expected, or when its normalized
+//! title equals the expected title and the expected first artist is among its
+//! artists. The second rule matters because MusicBrainz keeps several
+//! recordings of one song (album, single, remaster), and a correct file often
+//! fingerprints to a different recording than the one the server resolved.
 //!
 //! Everything here is pure: it never touches the network and never depends on
 //! the plugin bindings beyond their plain data types, so it is unit-tested on
@@ -60,11 +62,12 @@ pub fn expected_recording_id(expected: &ExpectedTrack) -> Option<&str> {
 ///
 /// # Returns
 ///
-/// A match when a remaining result carries the expected recording, a mismatch
-/// when a remaining result carries recordings but none of them is the expected
-/// one, and unknown when no remaining result carries a recording. The score is
-/// the deciding result's confidence, and the identified ids are the recordings
-/// of the deciding result.
+/// A match when a remaining result carries the expected recording by id or by
+/// normalized title and artist, a mismatch when a remaining result carries
+/// recordings but none of them matches either way, and unknown when no
+/// remaining result carries a recording. The score is the deciding result's
+/// confidence, and the identified ids are the recordings of the deciding
+/// result.
 ///
 /// # Example
 ///
@@ -115,21 +118,23 @@ pub fn decide(
 ///
 /// # Returns
 ///
-/// `true` when a recording of the result carries `expected_id`, or, when the
-/// track carries no id, when a recording's normalized title and first artist
-/// equal the expected ones.
+/// `true` when a recording of the result carries `expected_id`, or when a
+/// recording's normalized title equals the expected title and the expected
+/// first artist is among its artists. Either rule alone is enough: one song
+/// often has several MusicBrainz recordings, so a correct file may identify a
+/// recording whose id differs from the one the server resolved.
 fn result_matches(
     result: &LookupResult,
     expected: &ExpectedTrack,
     expected_id: Option<&str>,
 ) -> bool {
-    result.recordings.iter().any(|recording| match expected_id {
-        Some(id) => recording.id.trim().eq_ignore_ascii_case(id),
-        None => recording_matches_text(recording, expected),
+    result.recordings.iter().any(|recording| {
+        expected_id.is_some_and(|id| recording.id.trim().eq_ignore_ascii_case(id))
+            || recording_matches_text(recording, expected)
     })
 }
 
-/// Returns whether a recording's title and first artist equal the expected ones.
+/// Returns whether a recording's title and artists match the expected ones.
 ///
 /// # Parameters
 ///
@@ -138,9 +143,10 @@ fn result_matches(
 ///
 /// # Returns
 ///
-/// `true` when both normalized titles are equal and non-empty and both first
-/// artists are present and normalize equal; `false` otherwise, including when
-/// either side lacks an artist.
+/// `true` when both normalized titles are equal and non-empty and the expected
+/// first artist is present, normalizes non-empty, and equals one of the
+/// recording's artists; `false` otherwise, including when either side lacks an
+/// artist.
 fn recording_matches_text(recording: &Recording, expected: &ExpectedTrack) -> bool {
     let Some(title) = recording.title.as_deref() else {
         return false;
@@ -150,13 +156,16 @@ fn recording_matches_text(recording: &Recording, expected: &ExpectedTrack) -> bo
         return false;
     }
 
-    match (recording.artists.first(), expected.artists.first()) {
-        (Some(found), Some(wanted)) => {
-            let found = normalize(&found.name);
+    match expected.artists.first() {
+        Some(wanted) => {
             let wanted = normalize(wanted);
-            !found.is_empty() && found == wanted
+            !wanted.is_empty()
+                && recording
+                    .artists
+                    .iter()
+                    .any(|found| normalize(&found.name) == wanted)
         }
-        _ => false,
+        None => false,
     }
 }
 
@@ -245,6 +254,9 @@ mod tests {
     /// Recording id the mismatching fixture reports.
     const OTHER_ID: &str = "33333333-3333-4333-8333-333333333333";
 
+    /// Recording id the alternate-recording fixture reports.
+    const ALTERNATE_ID: &str = "55555555-5555-4555-8555-555555555555";
+
     fn expected(ids: &[(&str, &str)]) -> ExpectedTrack {
         ExpectedTrack {
             title: "Hello".to_string(),
@@ -296,19 +308,49 @@ mod tests {
     }
 
     #[test]
-    fn an_expected_id_takes_precedence_over_matching_text() {
-        let mut expected = expected(&[("mb-recording", OTHER_ID)]);
-        expected.title = "Hello".to_string();
-        expected.artists = vec!["Hearthsound".to_string()];
+    fn matches_a_recording_under_another_musicbrainz_id() {
+        // The server resolved one recording of the song; AcoustID identifies a
+        // different one with the same title and artist. The file is still the
+        // track the server asked for, because MusicBrainz keeps several
+        // recordings of one song.
+        let result = decide(
+            &expected(&[("mb-recording", MATCHED_ID)]),
+            &response(include_str!("fixtures/alternate_recording.json")),
+            0.5,
+        );
+
+        assert_eq!(result.verdict, Verdict::Match);
+        assert_eq!(result.score, 0.88);
+        assert_eq!(result.identified.len(), 1);
+        assert_eq!(result.identified[0].value, ALTERNATE_ID);
+    }
+
+    #[test]
+    fn text_match_accepts_the_expected_artist_among_the_credits() {
+        let mut expected = expected(&[]);
+        expected.artists = vec!["  GUEST VOICE ".to_string()];
 
         let result = decide(
             &expected,
-            &response(include_str!("fixtures/match.json")),
+            &response(include_str!("fixtures/alternate_recording.json")),
+            0.5,
+        );
+
+        assert_eq!(result.verdict, Verdict::Match);
+    }
+
+    #[test]
+    fn a_different_artist_does_not_match() {
+        let mut expected = expected(&[]);
+        expected.artists = vec!["Somebody Else".to_string()];
+
+        let result = decide(
+            &expected,
+            &response(include_str!("fixtures/alternate_recording.json")),
             0.5,
         );
 
         assert_eq!(result.verdict, Verdict::Mismatch);
-        assert_eq!(result.score, 0.95);
     }
 
     #[test]

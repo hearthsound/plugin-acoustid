@@ -16,8 +16,11 @@
 //! A result decides a verdict only when its confidence reaches `minScore`
 //! (0.5 by default) and it carries a MusicBrainz recording. A recording
 //! matches when its MusicBrainz id is the `mb-recording` id the server
-//! expected; when the server expected no id, the recording's normalized title
-//! and first artist must equal the expected ones.
+//! expected, or when its normalized title equals the expected title and the
+//! expected first artist is among its artists. The second rule matters because
+//! one song usually has several MusicBrainz recordings (album, single,
+//! remaster), and a correct file often identifies a different one than the
+//! server resolved.
 //!
 //! The pure logic sits in public modules ([`acoustid`], [`normalize`], [`url`],
 //! [`verdict`]); the binding-coupled glue - the HTTP transport and the plugin

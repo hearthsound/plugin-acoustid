@@ -89,8 +89,11 @@ result carries the MusicBrainz recordings AcoustID associates with the print.
    recording.
 2. The remaining results are ranked by confidence, highest first.
 3. A result matches when one of its recordings carries the `mb-recording` id the
-   server expected. When the server expected no id, a recording matches when its
-   normalized title and first artist equal the expected ones.
+   server expected, or when a recording's normalized title equals the expected
+   title and the expected first artist is among that recording's artists. Either
+   rule alone is enough, because MusicBrainz keeps several recordings of one
+   song (album, single, remaster) and a correct file often identifies a
+   different recording than the one the server resolved.
 4. The highest-scoring matching result decides `match`, with its confidence as
    the score and its recording ids as the identified ids.
 5. Otherwise, the highest-scoring remaining result decides `mismatch`, with its
