@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "app.hearthsound.acoustid",
   "name": "AcoustID verification",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Check downloaded files against the AcoustID fingerprint database so the server keeps only the recording it asked for.",
   "authors": ["Hearthsound contributors"],
   "license": "MIT OR Apache-2.0",
