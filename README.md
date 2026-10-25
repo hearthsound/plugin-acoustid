@@ -37,7 +37,7 @@ The component lands at
 Install the plugin CLI from the SDK repository:
 
 ```console
-cargo install --locked --git https://github.com/hearthsound/plugin-sdk --tag v0.3.0 hearthsound-plugin-cli
+cargo install --locked --git https://github.com/hearthsound/plugin-sdk --tag v0.4.0 hearthsound-plugin-cli
 ```
 
 Then validate the manifest and the component:
@@ -46,7 +46,7 @@ Then validate the manifest and the component:
 hsplugin check
 ```
 
-It prints `ok: app.hearthsound.acoustid 0.1.1 (provides verification)` on
+It prints `ok: app.hearthsound.acoustid 0.2.0 (provides verification)` on
 success.
 
 Finally, build the archive you install on a server:
@@ -55,7 +55,7 @@ Finally, build the archive you install on a server:
 hsplugin pack --out-dir dist
 ```
 
-`dist/app.hearthsound.acoustid-0.1.1.hsplugin` contains the manifest and the
+`dist/app.hearthsound.acoustid-0.2.0.hsplugin` contains the manifest and the
 component.
 
 ## Tests
@@ -117,9 +117,11 @@ space, so accents, case and punctuation do not cause a false mismatch.
 - The plugin never uploads fingerprints: it only calls the lookup operation.
   Submitting fingerprints to the database is a separate, user-facing action the
   plugin does not take.
-- The health probe posts the client key alone. The service answers with a
-  request error rather than spending a lookup, and any status below 500 counts
-  as reachable.
+- The health probe sends a shape-valid lookup: the client key with a one-second
+  duration and a fingerprint too short to match anything. The service checks
+  the key before it complains about the print, so a wrong key surfaces as
+  `invalid-config` at configuration time; a fingerprint complaint still counts
+  as reachable, because it proves the key was accepted.
 - An HTTP 429 becomes `rate-limited(1)`, HTTP 401 and 403 become `unauthorized`,
   and every other failure status becomes `unavailable`. An error object that
   names the API key becomes `invalid-config`, because an unusable key is an

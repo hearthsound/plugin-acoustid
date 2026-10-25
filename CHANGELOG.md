@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
+### Changed
+
+- Build against the `hearthsound:plugin@0.4.0` API (plugin-sdk v0.4.0).
+
+### Fixed
+
+- The health probe now reports a rejected client key as a configuration error
+  instead of OK: it sends a shape-valid lookup and reads the service's error
+  object. AcoustID answers a wrong key with HTTP 200 and an `error` object, so
+  the previous key-only probe never saw the rejection and an administrator
+  learned about the bad key at the first verification instead of at
+  configuration time.
+
 ## [0.1.2] - 2026-10-23
 
 ### Changed

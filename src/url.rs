@@ -109,11 +109,27 @@ pub fn lookup_form(client_key: &str, duration_secs: u32, fingerprint: &str) -> S
     )
 }
 
+/// Length of the probe fingerprint, in seconds.
+///
+/// Any positive duration is a valid duration parameter; one second keeps the
+/// number a single digit so the encoded body stays readable in a log.
+const PROBE_DURATION_SECS: u32 = 1;
+
+/// Fingerprint the health probe sends.
+///
+/// It is URL-safe base64 that decodes to four bytes, which is far too short to
+/// be a real fingerprint and therefore never matches a cluster: the service
+/// checks the key and the parameters, then complains about the print, and a
+/// rejected key surfaces as an `error` object instead of a parameter error.
+const PROBE_FINGERPRINT: &str = "AQAAAA";
+
 /// Builds the form body of the health probe.
 ///
-/// The probe sends only the client key and the response format: the service
-/// answers a request without a fingerprint with an error status, which is
-/// enough to show that the endpoint is reachable without spending a lookup.
+/// The probe is a shape-valid lookup: it sends the client key, a one-second
+/// duration and [`PROBE_FINGERPRINT`], which is too short to match anything.
+/// A request without a fingerprint never reaches the key check, and AcoustID
+/// answers a rejected key with HTTP 200 and an `error` object, so only a call
+/// that looks like a real lookup can tell a good key from a bad one.
 ///
 /// # Parameters
 ///
@@ -126,10 +142,11 @@ pub fn lookup_form(client_key: &str, duration_secs: u32, fingerprint: &str) -> S
 /// # Example
 ///
 /// ```text
-/// probe_form("key") -> "client=key&format=json"
+/// probe_form("key")
+///   -> "client=key&duration=1&fingerprint=AQAAAA&meta=recordings&format=json"
 /// ```
 pub fn probe_form(client_key: &str) -> String {
-    format!("client={}&format=json", encode(client_key))
+    lookup_form(client_key, PROBE_DURATION_SECS, PROBE_FINGERPRINT)
 }
 
 /// Percent-encodes one form value.
@@ -213,6 +230,15 @@ mod tests {
 
     #[test]
     fn builds_the_probe_body() {
-        assert_eq!(probe_form("key"), "client=key&format=json");
+        let body = probe_form("key");
+
+        assert_eq!(
+            body,
+            "client=key&duration=1&fingerprint=AQAAAA&meta=recordings&format=json"
+        );
+        // The probe must look like a lookup, so it carries a duration and a
+        // fingerprint; without them the service never checks the key.
+        assert!(body.contains("duration=1"), "{body}");
+        assert!(body.contains("fingerprint=AQAAAA"), "{body}");
     }
 }

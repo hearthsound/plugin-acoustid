@@ -54,12 +54,11 @@ pub(crate) fn lookup(
     decode(response.status, &response.body, &config.base_url)
 }
 
-/// Checks that the configured lookup endpoint answers.
+/// Checks that the configured lookup endpoint answers and accepts the key.
 ///
-/// The probe sends only the client key and the response format, so the service
-/// answers with a request error instead of spending a real lookup. Any status
-/// below 500 counts as an answer: the point of the probe is that the endpoint
-/// is reachable, not that the probe request itself was valid.
+/// The probe is a shape-valid lookup (see [`url::probe_form`]) whose verdict
+/// [`probe_outcome`] decides from the response body, because AcoustID reports
+/// a rejected key with HTTP 200 and an `error` object.
 ///
 /// # Parameters
 ///
@@ -67,19 +66,57 @@ pub(crate) fn lookup(
 ///
 /// # Returns
 ///
-/// `Ok(())` when the service answered.
+/// `Ok(())` when the service answered and did not reject the client key.
 ///
 /// # Errors
 ///
-/// Returns the error of a request that did not happen and
-/// [`ProviderError::Unavailable`] for a server-side failure status.
+/// Returns the error of a request that did not happen,
+/// [`ProviderError::InvalidConfig`] when the service rejected the client key,
+/// and [`ProviderError::Unavailable`] for a server-side failure status.
 pub(crate) fn probe(config: &Config) -> Result<(), ProviderError> {
     let response = post(config, url::probe_form(&config.client_key))?;
 
-    if response.status < 500 {
-        Ok(())
-    } else {
-        Err(status_error(response.status, &config.base_url))
+    probe_outcome(response.status, &response.body, &config.base_url)
+}
+
+/// Decides one probe response.
+///
+/// # Parameters
+///
+/// - `status`: HTTP status of the response.
+/// - `body`: raw response body.
+/// - `url`: request URL, used in error messages.
+///
+/// # Returns
+///
+/// `Ok(())` when the service answered, did not reject the client key, and did
+/// not fail server-side. A body that is not JSON counts as an answer: the
+/// endpoint is reachable and the lookup path reports the malformed body.
+///
+/// # Errors
+///
+/// Returns [`ProviderError::InvalidConfig`] when the service rejected the
+/// client key, and [`ProviderError::Unavailable`] for every status of 500 or
+/// above.
+pub(crate) fn probe_outcome(status: u16, body: &[u8], url: &str) -> Result<(), ProviderError> {
+    if status >= 500 {
+        return Err(status_error(status, url));
+    }
+
+    let Ok(response) = serde_json::from_slice::<LookupResponse>(body) else {
+        return Ok(());
+    };
+
+    if response.status == "ok" {
+        return Ok(());
+    }
+
+    match api_error(&response, url) {
+        // The key was rejected: exactly what the probe exists to report.
+        error @ ProviderError::InvalidConfig(_) => Err(error),
+        // Any other error object, a fingerprint complaint included, proves the
+        // service accepted the key.
+        _ => Ok(()),
     }
 }
 
@@ -290,5 +327,46 @@ mod tests {
         let error = decode(200, b"<html>", URL).unwrap_err();
 
         assert!(matches!(error, ProviderError::Unavailable(_)));
+    }
+
+    #[test]
+    fn reports_a_probe_that_the_service_rejected_the_key_for() {
+        let body = br#"{"status":"error","error":{"code":3,"message":"invalid API key"}}"#;
+        let error = probe_outcome(200, body, URL).unwrap_err();
+
+        match error {
+            ProviderError::InvalidConfig(message) => assert!(message.contains("invalid API key")),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_a_probe_that_the_service_answered_without_results() {
+        let outcome = probe_outcome(200, br#"{"status":"ok","results":[]}"#, URL);
+
+        assert!(outcome.is_ok(), "{outcome:?}");
+    }
+
+    #[test]
+    fn accepts_a_probe_the_service_rejected_for_its_fingerprint() {
+        // A fingerprint complaint proves the key itself was accepted.
+        let body = br#"{"status":"error","error":{"code":4,"message":"fingerprint is invalid"}}"#;
+        let outcome = probe_outcome(200, body, URL);
+
+        assert!(outcome.is_ok(), "{outcome:?}");
+    }
+
+    #[test]
+    fn reports_a_probe_that_reached_a_broken_server() {
+        let error = probe_outcome(500, b"", URL).unwrap_err();
+
+        assert!(matches!(error, ProviderError::Unavailable(_)));
+    }
+
+    #[test]
+    fn accepts_a_probe_whose_body_is_not_json() {
+        let outcome = probe_outcome(200, b"not json", URL);
+
+        assert!(outcome.is_ok(), "{outcome:?}");
     }
 }
